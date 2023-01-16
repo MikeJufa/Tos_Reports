@@ -18,6 +18,7 @@ SET DayNames='Mon;Tue;Wed;Thu;Fri;Sat;Sun';
 SET LongDayNames='Monday;Tuesday;Wednesday;Thursday;Friday;Saturday;Sunday';
 SET NumericalAbbreviation='3:k;6:M;9:G;12:T;15:P;18:E;21:Z;24:Y;-3:m;-6:μ;-9:n;-12:p;-15:f;-18:a;-21:z;-24:y';
 
+
 Temp1:
 Load *
     , RecNo() as RecordNum
@@ -36,8 +37,8 @@ LOAD
     Price,
     "Net Price",
     "Order Type"
-FROM [lib://DataFiles/2022-12-03-AccountStatement_Trade_History.csv]
-(txt, utf8, embedded labels, delimiter is ',', msq, header is 3 lines);
+FROM [lib://DataFiles/Trade_History.qvd](qvd)
+;
 
 NoConcatenate
 
@@ -48,6 +49,8 @@ Load *
     , Date(Floor(ExecTime),'YYYY.MM.DD') as ExecDate
     , Date(MonthStart(ExecTime), 'YYYY-MM') as ExecYrMth
     , Time(ExecTime) as ExecTT
+    , Hour(Time(ExecTime)) as ExecHour
+    , ExecTime&'|'&Type as %T1T2Link
 ;
 Load *
     , IF(LenOfExecTime=0,Peek([Exec Time]),[Exec Time]) as ExecTime
@@ -58,7 +61,7 @@ Order by RecordNum
 Drop Table Temp1;
 
 Qualify *;
-Unqualify [ExecTime];
+Unqualify [ExecTime], %T1T2Link;
 
 T2:
 Load
@@ -67,12 +70,33 @@ Load
     , Strike
     , Type
     , Side
-    , If(Type='CALL',Strike&'/'&(Strike+50),If(Type='PUT',Strike&'/'&(Strike-50))) as CombinedStrike
+    , If(Type='CALL','C'&Strike&'/'&(Strike+50),If(Type='PUT','P'&Strike&'/'&(Strike-50))) as CombinedStrike
     , If(ExpDate<=Today(),0,Qty) as Qty
     , If(ExpDate<=Today(),0,Qty*-1) as PoQty
     , "Net Price"
     , Qty*"Net Price" as NetAmount
+    , ExecTime&'|'&Type as %T1T2Link
 Resident T1
 where LenOfExecTime > 0
 Order by RecordNum
 ;
+
+
+T3:
+Load *
+    , DATE &' '& TIME as ExecTime
+Where NOT MATCH(DESCRIPTION,'TOTAL')
+;
+LOAD
+    "DATE",
+    "TIME",
+    "TYPE",
+    "REF #",
+    DESCRIPTION,
+    "Misc Fees",
+    "Commissions & Fees",
+    AMOUNT,
+    BALANCE
+FROM [lib://DataFiles/Cash_Balance.qvd](qvd)
+;
+
