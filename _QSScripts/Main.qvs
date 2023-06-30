@@ -18,85 +18,94 @@ SET DayNames='Mon;Tue;Wed;Thu;Fri;Sat;Sun';
 SET LongDayNames='Monday;Tuesday;Wednesday;Thursday;Friday;Saturday;Sunday';
 SET NumericalAbbreviation='3:k;6:M;9:G;12:T;15:P;18:E;21:Z;24:Y;-3:m;-6:μ;-9:n;-12:p;-15:f;-18:a;-21:z;-24:y';
 
-
-Temp1:
-Load *
-    , RecNo() as RecordNum
+T1:
+LOAD *
+    , Num(t1.ExecTime) as DateTimeNum
+    , If(t1.Type='CALL','C'&t1.Strike&'/'&(t1.Strike+50),If(t1.Type='PUT','P'&t1.Strike&'/'&(t1.Strike-50))) as CombinedStrike
+WHERE Match(Mod(t1.THRecNo,2),1)
+;
+LOAD *
+    , Dual('TH'&RecNo(),RecNo()) as [t1.THRecNo]
 ;
 LOAD
-    "Exec Time",
-    Len(Trim([Exec Time])) as LenOfExecTime,
-    Spread,
-    Side,
-    Qty,
-    "Pos Effect",
-    "Symbol",
-    Date(Date#("Exp",'D MMM YY'),'YYYY-MMM-D') as ExpDate,
-    Strike,
-    "Type",
-    Price,
-    "Net Price",
-    "Order Type"
-FROM [lib://DataFiles/Trade_History.qvd](qvd)
+    [Exec Time] as t1.ExecTime,
+    [Strike] as t1.Strike,
+    [Type] as t1.Type,
+    [Net Price] as t1.NetPrice,
+    [Pos Effect] as t1.PosEffect,
+    [Qty] as t1.Qty,
+    [Exp] as t1.Exp
+FROM [lib://Jufa_Dev:DataFiles/2023-06-23-AccountStatement_Trade_History.csv]
+(txt, utf8, embedded labels, delimiter is ',', msq, header is 1 lines)
+;
+
+
+
+//Cash balance
+CB:
+LOAD 
+      DATE
+    , TIME
+    , Num(DATE)+Num(TIME) as DateTimeNum
+    , DESCRIPTION
+    , Dual(Mid([DESCRIPTION],Index([DESCRIPTION],'/')+6,1)&''&TextBetween([DESCRIPTION],' ', '/', 9)
+    &'/'&Mid([DESCRIPTION],Index([DESCRIPTION],'/')+1,4),TextBetween([DESCRIPTION],' ', '/', 9)) as Temp1
+//    , TextBetween([DESCRIPTION],' ', '/', 9) as Temp2
+//    , Mid([DESCRIPTION],Index([DESCRIPTION],'/')+6,1) as Temp3
+    , TYPE as TradeType
+    , Dual('CB'&RecNo(),RecNo()) as [CBRecNo]
+;
+LOAD
+    [DATE],
+    [TIME],
+    [TYPE],
+    [REF #],
+    [DESCRIPTION],
+    [Misc Fees],
+    [Commissions & Fees],
+    [AMOUNT],
+    [BALANCE]
+FROM [lib://Jufa_Dev:DataFiles/2023-06-23-AccountStatement_Cash_Balance.csv]
+(txt, utf8, embedded labels, delimiter is ',', msq, header is 2 lines)
+;
+
+
+
+
+Temp:
+LOAD *
+    , Dual('TH'&RecNo(),RecNo()) as [THRecNo]
+;
+LOAD
+    [Exec Time],
+    [Spread],
+    [Side],
+    [Qty],
+    [Pos Effect],
+    [Symbol],
+    [Exp],
+    [Strike],
+    [Type],
+    [Price],
+    [Net Price],
+    [Order Type]
+FROM [lib://Jufa_Dev:DataFiles/2023-06-23-AccountStatement_Trade_History.csv]
+(txt, utf8, embedded labels, delimiter is ',', msq, header is 1 lines)
 ;
 
 NoConcatenate
 
-T1:
-Load *
-    , Year(ExecTime) as ExecYear
-    , Month(ExecTime) as ExecMonth
-    , Date(Floor(ExecTime),'YYYY.MM.DD') as ExecDate
-    , Date(MonthStart(ExecTime), 'YYYY-MM') as ExecYrMth
-    , Time(ExecTime) as ExecTT
-    , Hour(Time(ExecTime)) as ExecHour
-    , ExecTime&'|'&Type as %T1T2Link
+TO:
+LOAD *
+    , Num(ExecTime) as [DateTimeNum] 
+//WHERE Match([Pos Effect],'TO OPEN')
 ;
 Load *
-    , IF(LenOfExecTime=0,Peek([Exec Time]),[Exec Time]) as ExecTime
-Resident Temp1
-Order by RecordNum
+    , IF(Len(Trim([Exec Time]))=0,Peek([Exec Time]),[Exec Time]) as ExecTime
+    , IF(Len(Trim([Spread]))=0,Peek([Spread]),[Spread]) as Sprd
+    , IF(Len(Trim([Order Type]))=0,Peek([Order Type]),[Order Type]) as OrderType
+Resident Temp
+order by [THRecNo]
 ;
 
-Drop Table Temp1;
-
-Qualify *;
-Unqualify [ExecTime], %T1T2Link;
-
-T2:
-Load
-      ExecTime
-    , "Pos Effect"
-    , Strike
-    , Type
-    , Side
-    , If(Type='CALL','C'&Strike&'/'&(Strike+50),If(Type='PUT','P'&Strike&'/'&(Strike-50))) as CombinedStrike
-    , If(ExpDate<=Today(),0,Qty) as Qty
-    , If(ExpDate<=Today(),0,Qty*-1) as PoQty
-    , "Net Price"
-    , Qty*"Net Price" as NetAmount
-    , ExecTime&'|'&Type as %T1T2Link
-Resident T1
-where LenOfExecTime > 0
-Order by RecordNum
-;
-
-
-T3:
-Load *
-    , DATE &' '& TIME as ExecTime
-Where NOT MATCH(DESCRIPTION,'TOTAL')
-;
-LOAD
-    "DATE",
-    "TIME",
-    "TYPE",
-    "REF #",
-    DESCRIPTION,
-    "Misc Fees",
-    "Commissions & Fees",
-    AMOUNT,
-    BALANCE
-FROM [lib://DataFiles/Cash_Balance.qvd](qvd)
-;
-
+DROP TABLE Temp;
